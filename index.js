@@ -96,6 +96,18 @@ async function processTestimonials() {
 
 				console.log(`Processing message from ${message.author.tag}...`);
 
+				let cleanedContent = message.content;
+				// Replace user mentions with their display names
+				if (message.mentions.users.size > 0) {
+					for (const [userId, user] of message.mentions.users) {
+						const mentionRegex = new RegExp(`<@!?${userId}>`, "g");
+						cleanedContent = cleanedContent.replace(
+							mentionRegex,
+							`@${user.displayName}`
+						);
+					}
+				}
+
 				// Convert plain string message content to Contentful Rich Text format
 				const richTextMessage = {
 					nodeType: "document",
@@ -107,7 +119,7 @@ async function processTestimonials() {
 							content: [
 								{
 									nodeType: "text",
-									value: message.content,
+									value: cleanedContent,
 									marks: [],
 									data: {},
 								},
@@ -121,6 +133,9 @@ async function processTestimonials() {
 					fields: {
 						userId: {
 							"en-US": message.id, // Use the message ID as the unique identifier
+						},
+						userName: {
+							"en-US": message.author.displayName,
 						},
 						messageContent: {
 							"en-US": richTextMessage,
