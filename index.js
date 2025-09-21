@@ -1,20 +1,14 @@
-// Load environment variables from a .env file
 require("dotenv").config();
 
-// Import required Node.js libraries
 const { Client, GatewayIntentBits, Partials } = require("discord.js");
 const axios = require("axios");
 
-// Get the necessary keys and IDs from your .env file
 const DISCORD_BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
 const CONTENTFUL_SPACE_ID = process.env.CONTENTFUL_SPACE_ID;
 const CONTENTFUL_ACCESS_TOKEN = process.env.CONTENTFUL_ACCESS_TOKEN;
 const CONTENTFUL_MANAGEMENT_TOKEN = process.env.CONTENTFUL_MANAGEMENT_TOKEN;
 
-// The channel name to listen for testimonials
 const TESTIMONIALS_CHANNEL_NAME = "server-testimonials-for-website";
-
-// The Contentful content type ID for testimonials
 const CONTENTFUL_CONTENT_TYPE = "userTestimonial";
 
 // Create a new Discord client instance with necessary intents
@@ -22,12 +16,11 @@ const client = new Client({
 	intents: [
 		GatewayIntentBits.Guilds,
 		GatewayIntentBits.GuildMessages,
-		GatewayIntentBits.MessageContent, // Necessary to read message content
+		GatewayIntentBits.MessageContent,
 	],
 	partials: [Partials.Channel, Partials.Message],
 });
 
-// A function to check if a testimonial from a specific Discord message exists in Contentful
 async function checkIfTestimonialExists(discordMessageId) {
 	try {
 		const response = await axios.get(
@@ -56,7 +49,6 @@ async function checkIfTestimonialExists(discordMessageId) {
 async function processTestimonials() {
 	console.log("Starting to process testimonials...");
 	try {
-		// Find the guild the bot is in
 		let guild;
 		if (client.guilds.cache.size > 0) {
 			guild = client.guilds.cache.first();
@@ -74,7 +66,6 @@ async function processTestimonials() {
 			return;
 		}
 
-		// Calculate the timestamp for 10 minutes ago
 		const tenMinutesAgo = Date.now() - 10 * 60 * 1000;
 
 		// Fetch messages from the channel
@@ -82,21 +73,17 @@ async function processTestimonials() {
 		console.log(`Found ${messages.size} messages in the channel.`);
 
 		for (const message of messages.values()) {
-			// Check if the message is older than 10 minutes and not empty
 			const messageTimestamp = message.createdTimestamp;
 			if (messageTimestamp < tenMinutesAgo && message.content.length > 0) {
-				// Check if the testimonial has already been posted to Contentful
 				const testimonialExists = await checkIfTestimonialExists(message.id);
 				if (testimonialExists) {
 					console.log(
 						`Skipping message ${message.id} as it already exists in Contentful.`
 					);
-					continue; // Skip to the next message
+					continue;
 				}
-
 				console.log(`Processing message from ${message.author.tag}...`);
 
-				// Convert plain string message content to Contentful Rich Text format
 				const richTextMessage = {
 					nodeType: "document",
 					data: {},
@@ -120,7 +107,7 @@ async function processTestimonials() {
 				const testimonialData = {
 					fields: {
 						userId: {
-							"en-US": message.id, // Use the message ID as the unique identifier
+							"en-US": message.id,
 						},
 						messageContent: {
 							"en-US": richTextMessage,
@@ -168,13 +155,11 @@ async function processTestimonials() {
 		console.log("Testimonial processing complete.");
 	} catch (error) {
 		if (error.response && error.response.data && error.response.data.details) {
-			// Log the detailed error from Contentful
 			console.error(
 				"An error occurred during testimonial processing:",
 				JSON.stringify(error.response.data.details, null, 2)
 			);
 		} else {
-			// Log a generic error
 			console.error("An error occurred during testimonial processing:", error.message);
 		}
 	}
@@ -183,9 +168,8 @@ async function processTestimonials() {
 // When the bot is ready, it will start the scheduled task
 client.once("ready", async () => {
 	console.log(`Bot is online! Logged in as ${client.user.tag}`);
-	// Start the processing function immediately and then every 30 minutes
 	await processTestimonials();
-	setInterval(processTestimonials, 30 * 60 * 1000); // Check every 30 minutes
+	setInterval(processTestimonials, 12 * 30 * 60 * 1000); // Check every 12 hours
 });
 
 // Log in to Discord
