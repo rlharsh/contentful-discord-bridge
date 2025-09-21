@@ -108,6 +108,10 @@ async function processTestimonials() {
 					}
 				}
 
+				// Remove custom emoji tags
+				const emojiRegex = /<:\w+:\d+>/g;
+				cleanedContent = cleanedContent.replace(emojiRegex, "");
+
 				// Convert plain string message content to Contentful Rich Text format
 				const richTextMessage = {
 					nodeType: "document",
