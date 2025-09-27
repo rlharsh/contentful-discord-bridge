@@ -11,6 +11,24 @@ const CONTENTFUL_SPACE_ID = process.env.CONTENTFUL_SPACE_ID;
 const CONTENTFUL_ACCESS_TOKEN = process.env.CONTENTFUL_ACCESS_TOKEN;
 const CONTENTFUL_MANAGEMENT_TOKEN = process.env.CONTENTFUL_MANAGEMENT_TOKEN;
 
+// Validate environment variables
+if (!DISCORD_BOT_TOKEN) {
+	console.error("Error: DISCORD_BOT_TOKEN is not set in .env file");
+	process.exit(1);
+}
+if (!CONTENTFUL_SPACE_ID) {
+	console.error("Error: CONTENTFUL_SPACE_ID is not set in .env file");
+	process.exit(1);
+}
+if (!CONTENTFUL_ACCESS_TOKEN) {
+	console.error("Error: CONTENTFUL_ACCESS_TOKEN is not set in .env file");
+	process.exit(1);
+}
+if (!CONTENTFUL_MANAGEMENT_TOKEN) {
+	console.error("Error: CONTENTFUL_MANAGEMENT_TOKEN is not set in .env file");
+	process.exit(1);
+}
+
 // The channel name to listen for testimonials
 const TESTIMONIALS_CHANNEL_NAME = "server-testimonials-for-website";
 
@@ -45,8 +63,8 @@ async function checkIfTestimonialExists(discordMessageId) {
 		return response.data.items.length > 0;
 	} catch (error) {
 		console.error(
-			"Error checking for existing testimonial: Request failed with status code",
-			error.response.status
+			"Error checking for existing testimonial:",
+			error.response?.data?.message || error.message
 		);
 		return false;
 	}
@@ -97,13 +115,16 @@ async function processTestimonials() {
 				console.log(`Processing message from ${message.author.tag}...`);
 
 				let cleanedContent = message.content;
-				// Replace user mentions with their display names
+				// Replace user mentions with their usernames
 				if (message.mentions.users.size > 0) {
 					for (const [userId, user] of message.mentions.users) {
 						const mentionRegex = new RegExp(`<@!?${userId}>`, "g");
+						// Get the member from the guild to access displayName, fallback to username
+						const member = message.guild.members.cache.get(userId);
+						const displayName = member?.displayName || user.username;
 						cleanedContent = cleanedContent.replace(
 							mentionRegex,
-							`@${user.displayName}`
+							`@${displayName}`
 						);
 					}
 				}
@@ -139,7 +160,7 @@ async function processTestimonials() {
 							"en-US": message.id, // Use the message ID as the unique identifier
 						},
 						userName: {
-							"en-US": message.author.displayName,
+							"en-US": message.member?.displayName || message.author.username,
 						},
 						messageContent: {
 							"en-US": richTextMessage,
@@ -154,36 +175,46 @@ async function processTestimonials() {
 				};
 
 				// Make the POST request to Contentful
-				const response = await axios.post(
-					`https://api.contentful.com/spaces/${CONTENTFUL_SPACE_ID}/entries`,
-					testimonialData,
-					{
-						headers: {
-							Authorization: `Bearer ${CONTENTFUL_MANAGEMENT_TOKEN}`,
-							"Content-Type": "application/vnd.contentful.management.v1+json",
-							"X-Contentful-Content-Type": CONTENTFUL_CONTENT_TYPE,
-						},
-					}
-				);
+				try {
+					const response = await axios.post(
+						`https://api.contentful.com/spaces/${CONTENTFUL_SPACE_ID}/entries`,
+						testimonialData,
+						{
+							headers: {
+								Authorization: `Bearer ${CONTENTFUL_MANAGEMENT_TOKEN}`,
+								"Content-Type": "application/vnd.contentful.management.v1+json",
+								"X-Contentful-Content-Type": CONTENTFUL_CONTENT_TYPE,
+							},
+						}
+					);
 
-				console.log(
-					`Successfully posted testimonial to Contentful: ${response.data.sys.id}`
-				);
+					console.log(
+						`Successfully posted testimonial to Contentful: ${response.data.sys.id}`
+					);
 
-				// Automatically publish the newly created entry
-				const entryId = response.data.sys.id;
-				const version = response.data.sys.version;
-				await axios.put(
-					`https://api.contentful.com/spaces/${CONTENTFUL_SPACE_ID}/entries/${entryId}/published`,
-					{},
-					{
-						headers: {
-							Authorization: `Bearer ${CONTENTFUL_MANAGEMENT_TOKEN}`,
-							"X-Contentful-Version": version,
-						},
+					// Automatically publish the newly created entry
+					const entryId = response.data.sys.id;
+					const version = response.data.sys.version;
+
+					try {
+						await axios.put(
+							`https://api.contentful.com/spaces/${CONTENTFUL_SPACE_ID}/entries/${entryId}/published`,
+							{},
+							{
+								headers: {
+									Authorization: `Bearer ${CONTENTFUL_MANAGEMENT_TOKEN}`,
+									"X-Contentful-Version": version,
+								},
+							}
+						);
+						console.log(`Successfully published testimonial with ID: ${entryId}`);
+					} catch (publishError) {
+						console.error(`Failed to publish testimonial ${entryId}:`, publishError.response?.data || publishError.message);
 					}
-				);
-				console.log(`Successfully published testimonial with ID: ${entryId}`);
+				} catch (createError) {
+					console.error(`Failed to create testimonial for message ${message.id}:`, createError.response?.data || createError.message);
+					continue; // Skip to next message
+				}
 			}
 		}
 
@@ -205,10 +236,39 @@ async function processTestimonials() {
 // When the bot is ready, it will start the scheduled task
 client.once("ready", async () => {
 	console.log(`Bot is online! Logged in as ${client.user.tag}`);
+	console.log(`Bot is in ${client.guilds.cache.size} guild(s)`);
+
 	// Start the processing function immediately and then every 30 minutes
-	await processTestimonials();
-	setInterval(processTestimonials, 30 * 60 * 1000); // Check every 30 minutes
+	try {
+		await processTestimonials();
+	} catch (error) {
+		console.error("Error during initial testimonial processing:", error.message);
+	}
+
+	setInterval(async () => {
+		try {
+			await processTestimonials();
+		} catch (error) {
+			console.error("Error during scheduled testimonial processing:", error.message);
+		}
+	}, 30 * 60 * 1000); // Check every 30 minutes
+});
+
+// Handle process termination gracefully
+process.on('SIGINT', () => {
+	console.log('Received SIGINT. Gracefully shutting down...');
+	client.destroy();
+	process.exit(0);
+});
+
+process.on('SIGTERM', () => {
+	console.log('Received SIGTERM. Gracefully shutting down...');
+	client.destroy();
+	process.exit(0);
 });
 
 // Log in to Discord
-client.login(DISCORD_BOT_TOKEN);
+client.login(DISCORD_BOT_TOKEN).catch(error => {
+	console.error('Failed to login to Discord:', error.message);
+	process.exit(1);
+});
